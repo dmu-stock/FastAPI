@@ -1,12 +1,13 @@
 from fastapi import APIRouter
-from .service import analyze_news, predict_stock_trend
+from .service import analyze_news, predict_stock_trend, analyze_news_rag
 from pydantic import BaseModel
 from typing import List
 from typing import Optional
+from decimal import Decimal
 
 router = APIRouter(prefix="/api/v1")
 
-# Dto
+    # Dto
 class NewsAnalysisRequestDto(BaseModel):
     query: str
     urls: List[str]
@@ -14,7 +15,17 @@ class NewsAnalysisRequestDto(BaseModel):
 class StockAnalysisRequestDto(BaseModel):
     stockCode: Optional[str] = None
     ticker: Optional[str] = None
+
+class StockInfo(BaseModel):
+    stockCode : str
+    avgPrice : Decimal
+    quantity : Decimal
+    totalAmount : str
     
+class RagMyStockRequestDto(BaseModel):
+    memberStock:List[StockInfo]
+    newsForRag:List[str]
+
 
 
 @router.post("/NewsAnalysis")
@@ -33,3 +44,7 @@ async def predict_stock_api(request: StockAnalysisRequestDto):
         print(f"🇺🇸 미국 종목 분석 시작: {final_ticker}")
 
     return await predict_stock_trend(final_ticker)
+
+@router.post("/rag/NewsAnalysis")
+async def analyze_rag_api(request: RagMyStockRequestDto):
+    return await analyze_news_rag(request.memberStock, request.newsForRag)
