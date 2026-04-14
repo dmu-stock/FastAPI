@@ -1,31 +1,9 @@
 from fastapi import APIRouter
+from .models import NewsAnalysisRequestDto,StockAnalysisRequestDto,RagMyStockRequestDto
 from .service import analyze_news, predict_stock_trend, analyze_news_rag
-from pydantic import BaseModel
-from typing import List
-from typing import Optional
-from decimal import Decimal
+
 
 router = APIRouter(prefix="/api/v1")
-
-    # Dto
-class NewsAnalysisRequestDto(BaseModel):
-    query: str
-    urls: List[str]
-
-class StockAnalysisRequestDto(BaseModel):
-    stockCode: Optional[str] = None
-    ticker: Optional[str] = None
-
-class StockInfo(BaseModel):
-    stockCode : str
-    avgPrice : Decimal
-    quantity : Decimal
-    totalAmount : str
-    
-class RagMyStockRequestDto(BaseModel):
-    memberStock:List[StockInfo]
-    newsForRag:List[str]
-
 
 
 @router.post("/NewsAnalysis")
