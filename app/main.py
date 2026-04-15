@@ -1,7 +1,5 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
-import httpx
-from app.analyze.router import router as analyze_router
+from app.api.analyze_router import router as analyze_router
 
 app = FastAPI()
 app.include_router(analyze_router)

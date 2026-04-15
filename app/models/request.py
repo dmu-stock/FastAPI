@@ -26,4 +26,4 @@ class StockInfo(BaseModel):
     
 class RagMyStockRequestDto(BaseModel):
     memberStock:List[StockInfo]
-    newsForRag:List[str]
+    

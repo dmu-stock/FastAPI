@@ -1,7 +1,6 @@
 from fastapi import APIRouter
-from .models import NewsAnalysisRequestDto,StockAnalysisRequestDto,RagMyStockRequestDto
-from .service import analyze_news, predict_stock_trend, analyze_news_rag
-
+from ..models.request import NewsAnalysisRequestDto,StockAnalysisRequestDto,RagMyStockRequestDto
+from ..services.analyze_service import analyze_news, predict_stock_trend, analyze_news_rag
 
 router = APIRouter(prefix="/api/v1")
 
@@ -25,4 +24,4 @@ async def predict_stock_api(request: StockAnalysisRequestDto):
 
 @router.post("/rag/NewsAnalysis")
 async def analyze_rag_api(request: RagMyStockRequestDto):
-    return await analyze_news_rag(request.memberStock, request.newsForRag)
+    return await analyze_news_rag(request.memberStock)
