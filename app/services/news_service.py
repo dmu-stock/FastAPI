@@ -63,7 +63,6 @@ async def get_finnhub_news(ticker:str):
     print(f"\n--- [{ticker}] Finnhub 뉴스 데이터 구조 확인 ---")
     if data:
         print(f"샘플 뉴스 데이터 (1건): {data[0]}") 
-        # 리스트 안에 담긴 첫 번째 딕셔너리의 키(key)들을 확인해보세요.
         print(f"데이터 키 목록: {data[0].keys()}")
     else:
         print("수집된 뉴스가 없습니다.")

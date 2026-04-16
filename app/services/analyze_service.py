@@ -142,7 +142,8 @@ async def analyze_news_rag(memberStock):
     all_news_urls = []
     news_context = ""
     for s in memberStock:
-        stock_context += f"- 종목코드: {s.stockCode}, 평단가: {s.avgPrice}, 수량: {s.quantity}\n"
+        stock_context += f"- 종목코드: {s.stockCode}, 구매가격: {s.avgPrice}, 수량: {s.quantity}\n"
+        stock_context += f"- 현재가격: {s.currentPrice}, 전일대비: {s.changePrice}, 등락율: {s.changeRate},marketCap: {s.marketCap}\n"
 
         # 티커 -> 주식이름
         stockName = convert_ticker(s.stockCode)
@@ -169,14 +170,6 @@ async def analyze_news_rag(memberStock):
                 print(f"핀비즈 수집 중 에러: {e}")
                 pass
 
-    # 뉴스url 크롤링
-    # if all_news_urls:
-    #     print(f"{len(all_news_urls)}개 url 크롤링")
-    #     print(f"{(all_news_urls)}개 url 크롤링")
-    #     news_results =crawling_urls(all_news_urls)
-    #     for doc in news_results:
-    #         news_context += f"\n뉴스제목: {doc['title']}\n내용: {doc['content']}\n"
-
     for item in all_news_urls:
         # 뉴스 객체에서 안전하게 데이터 추출
         title = item.get('headline') or item.get('title') or item.get('report_nm') or "제목 없음"
@@ -187,17 +180,23 @@ async def analyze_news_rag(memberStock):
 
     # LLM 프롬프트 구성
     prompt = f"""
-    너는 여의도에서 잔뼈가 굵은 주식 전문가 '주모'야. 
+    너는 여의도에서 잔뼈가 굵은 주식 전문가 '감잡이'야. 
     제공된 데이터를 단순 요약하지 말고, 반드시 '돈이 되는 정보'를 짚어줘.
 
-    [데이터]
-    ... (생략) ...
+    [내 주식 정보]
+    {stock_context}
+
+    [미국주식 핀비즈 데이터]
+    {finviz_context}
+
+    [한국주식 공시 데이터]
+    {news_context}
 
     [분석 가이드라인 - 필독!]
-    1. 삼성전자(005930) 분석 시, 반드시 제공된 공시 리스트 중 '실적(잠정)', '주식소각' 등의 키워드를 찾아내서 언급해.
-    2. 4월 7일 실적 공시와 3월 31일 주식 소각 정보를 바탕으로, 현재 평단가(18만원) 탈출 가능성을 냉정하게 분석해.
-    3. "상승할 수도, 하락할 수도 있다"는 식의 애매한 답변은 금지야. 데이터에 기반해 확신 있는 어조로 말해줘.
-    4. IREN은 RSI가 높으니 구체적인 익절 구간을, PLTR은 목표가 대비 현재가 괴리율을 계산해서 말해줘.
+    1. 내가 산 주식을 실시간 가격 바탕으로 상승/하락 예측 분석해줘.
+    2. 한국 주식 분석 시 공시데이터 받은 내용을 기반으로 주식 분석해줘.
+    3. 미국 주식은 핀비즈 데이터를 기반으로 분석해줘.
+    4. "상승할 수도, 하락할 수도 있다"는 식의 애매한 답변은 금지야. 데이터에 기반해 확신 있는 어조로 말해줘.
     5. 말투는 친절하지만 내용은 팩트 폭격 수준으로 날카롭게!
     """
 

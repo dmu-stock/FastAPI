@@ -19,10 +19,14 @@ class StockType(str, Enum):
 
 class StockInfo(BaseModel):
     stockCode : str
-    avgPrice : Decimal
-    quantity : Decimal
-    totalAmount : str
+    avgPrice : float
+    quantity : float
+    totalAmount : float
     type: StockType
+    currentPrice:float
+    changePrice:float
+    changeRate:float
+    marketCap:float
     
 class RagMyStockRequestDto(BaseModel):
     memberStock:List[StockInfo]
