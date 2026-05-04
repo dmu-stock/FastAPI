@@ -17,6 +17,7 @@ price_yfinance.py
 import yfinance as yf
 import pandas as pd
 from typing import List, Optional
+from app.database.sqlite_db import save_price_to_db
 
 
 # -------------------------------------------------
@@ -73,15 +74,22 @@ def fetch_price_data(
         - High
         - Low
         - Close
+        - Adj Close
         - Volume
     """
 
     try:
         # Yahoo Finance Ticker 객체 생성
-        stock = yf.Ticker(ticker)
+        # stock = yf.Ticker(ticker)
 
         # 주가 이력 데이터 요청
-        df = stock.history(period=period, interval=interval)
+        df = yf.download(
+            ticker,
+            period=period,
+            interval=interval,
+            auto_adjust=False, 
+            progress=False
+        )
 
         # 데이터가 없는 경우 조기 반환
         if df.empty:
@@ -92,8 +100,13 @@ def fetch_price_data(
         # 데이터 전처리
         # -----------------------------
 
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
         # Date 인덱스를 컬럼으로 변환
         df = df.reset_index()
+
+        df.columns = [str(col).capitalize() if str(col).lower() == 'date' else col for col in df.columns]
 
         # 종목 식별용 ticker 컬럼 추가
         df["ticker"] = ticker
@@ -106,18 +119,32 @@ def fetch_price_data(
             .dt.date
         )
 
+        # 등락률 컬럼 추가
+        df['change_rate'] = df.groupby('ticker')['Adj Close'].pct_change()
+        df['change_rate'] = df['change_rate'].fillna(0)
+
+        df = df.rename(columns={
+            "Date": "date",
+            "Open": "open",
+            "High": "high",
+            "Low": "low",
+            "Close": "close",
+            "Adj Close": "adj_close",
+            "Volume": "volume"
+        })
+
         # 분석에 필요한 컬럼만 선택
         # (Dividends, Stock Splits 등은 제거)
         df = df[
-            ["Date", "ticker", "Open", "High", "Low", "Close", "Volume"]
+            ["date", "ticker", "open", "high", "low", "close", "adj_close","volume","change_rate"]
         ]
 
         # 결측치 제거
         df = df.dropna()
 
         # 날짜 기준 오름차순 정렬
-        df = df.sort_values("Date").reset_index(drop=True)
-
+        df = df.sort_values("date").reset_index(drop=True)
+        
         return df
 
     except Exception as e:
@@ -188,7 +215,7 @@ def save_to_csv(df: pd.DataFrame, filename: str) -> None:
     # index=False: DataFrame 인덱스는 저장하지 않음
     # utf-8-sig: Excel에서 한글 깨짐 방지
     df.to_csv(filename, index=False, encoding="utf-8-sig")
-    print(f"[저장 완료] {filename} ({len(df)}행)")
+    print(f"[CSV 저장 완료] {filename} ({len(df)}행)")
 
 
 # -------------------------------------------------
@@ -197,13 +224,18 @@ def save_to_csv(df: pd.DataFrame, filename: str) -> None:
 if __name__ == "__main__":
     # 전체 종목 가격 데이터 수집
     df_prices = fetch_all_stocks_price_data()
+    if df_prices is not None and not df_prices.empty:
+        # db 저장(학습 데이터용)
+        save_price_to_db(df_prices)
 
-    if not df_prices.empty:
         print("\n[미리보기]")
         print(df_prices.head(10))
-        print(f"\n수집 기간: {df_prices['Date'].min()} ~ {df_prices['Date'].max()}")
+        print(f"\n수집 기간: {df_prices['date'].min()} ~ {df_prices['date'].max()}")
         print(f"종목 수: {df_prices['ticker'].nunique()}")
         print(f"총 데이터 수: {len(df_prices)}")
 
         # CSV 저장 (검증/공유용)
         save_to_csv(df_prices, "bluechip_price_data.csv")
+    else:
+        print("수집된 데이터가 없습니다.")
+        
