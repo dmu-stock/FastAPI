@@ -24,13 +24,15 @@ import pandas as pd
 import datetime
 import time
 from zoneinfo import ZoneInfo
+from dotenv import load_dotenv
 
 # LLM 기반 헤드라인 전처리 함수
 # (단건 호출이 아닌 배치 호출로 API 비용/시간 절감)
+load_dotenv()
 from app.collector.headline_preprocessor import preprocess_headlines_batch
 
 # Finnhub 클라이언트 초기화
-finnhub_client = finnhub.Client(api_key="d7fh829r01qpjqqkqh2gd7fh829r01qpjqqkqh30")
+API_KEY = os.getenv("FINNHUB_API_KEY")
 # -------------------------------------------------
 # 반환 DataFrame 컬럼 정의
 # (항상 동일한 구조를 유지하기 위함)
