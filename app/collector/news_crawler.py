@@ -19,15 +19,18 @@ news_crawler.py
 """
 
 import yfinance as yf
+import finnhub
 import pandas as pd
-from datetime import timedelta,time
+import datetime
+import time
 from zoneinfo import ZoneInfo
 
 # LLM 기반 헤드라인 전처리 함수
 # (단건 호출이 아닌 배치 호출로 API 비용/시간 절감)
 from app.collector.headline_preprocessor import preprocess_headlines_batch
 
-
+# Finnhub 클라이언트 초기화
+finnhub_client = finnhub.Client(api_key="d7fh829r01qpjqqkqh2gd7fh829r01qpjqqkqh30")
 # -------------------------------------------------
 # 반환 DataFrame 컬럼 정의
 # (항상 동일한 구조를 유지하기 위함)
@@ -121,7 +124,60 @@ MARKET_TICKERS = {
     "SPY": "us_market",
     "QQQ": "tech_market"
 }
+def fetch_finnhub_news(ticker, start_date, end_date):
+    """
+    Finnhub을 이용해 과거 뉴스 데이터를 수집
+    start_date, end_date: 'YYYY-MM-DD' 형식
+    """
+    # 1. 날짜 변환
+    s_date = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+    e_date = datetime.datetime.strptime(end_date, '%Y-%m-%d')
 
+    # 3개월씩 쪼개기
+    date_ranges = pd.date_range(start=s_date, end=e_date, freq='3MS')
+    all_news = []
+    
+    for i in range(len(date_ranges)-1):
+        s = date_ranges[i].strftime('%Y-%m-%d')
+        e = date_ranges[i+1].strftime('%Y-%m-%d')
+        
+        try:
+            # Finnhub 호출
+            news = finnhub_client.company_news(ticker, _from=s, to=e)
+            if not news: continue
+            
+            for item in news:
+                all_news.append({
+                    "date": pd.to_datetime(item['datetime'], unit='s').date(),
+                    "ticker": ticker,
+                    "headline": item['headline'],
+                    "source": item['source']
+                })
+            # API 호출 제한 방지 (무료 플랜 기준 1초당 호출 제한)
+            time.sleep(1) 
+        except Exception as e:
+            print(f"[에러] {ticker} 수집 실패: {e}")
+            
+    return pd.DataFrame(all_news)
+
+def run_collection(tickers):
+    """
+    모든 티커에 대해 3년 치 뉴스 수집 및 저장
+    """
+    start_date = "2023-05-13" # 3년 전
+    end_date = datetime.datetime.now().strftime('%Y-%m-%d')
+    
+    total_data = []
+    for ticker in tickers:
+        print(f"[진행] {ticker} 데이터 수집 중...")
+        df = fetch_finnhub_news(ticker, start_date, end_date)
+        total_data.append(df)
+        
+    final_df = pd.concat(total_data, ignore_index=True)
+    final_df.to_csv("historical_news_data.csv", index=False, encoding="utf-8-sig")
+    print("완료: historical_news_data.csv 저장됨")
+
+############################################################################################
 def get_predictive_session(pub_time):
     """
     뉴스가 발생한 시간을 기준으로, 
@@ -362,7 +418,9 @@ def fetch_all_news(save_debug_csv: bool = False) -> pd.DataFrame:
 # 단독 실행 테스트
 # -------------------------------------------------
 if __name__ == "__main__":
-    df_news = fetch_all_news(save_debug_csv=True)
+    # df_news = fetch_all_news(save_debug_csv=True)
 
-    print("\n[미리보기]")
-    print(df_news.head(50))
+    # print("\n[미리보기]")
+    # print(df_news.head(50))
+    target_tickers = ["AAPL", "MSFT", "NVDA", "TSLA", "AMD"] # 테스트용 일부
+    run_collection(target_tickers)
