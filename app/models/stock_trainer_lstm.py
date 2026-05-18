@@ -60,52 +60,55 @@ df['date'] = pd.to_datetime(df['date'])
 #     'tr_5'
 
 # ]
-# feature_cols = [
-
-#         # raw
-#         'open',
-#         'high',
-#         'low',
-#         'adj_close',
-#         'volume',
-
-#         # returns
-#         'change_rate',
-#         'log_return',
-
-#         # candle
-#         'candle_body',
-#         'high_low_spread',
-
-#         # indicator
-#         'rsi',
-#         'macd_hist',
-#         'bb_percent',
-#         'volatility_5',
-
-#         # market
-#         'nasdaq_change_rate'
-#         ]
 feature_cols = [
-            # 1. 가격의 변화율 및 캔들 모양 (이미 0을 기준으로 정규화된 형태)
-            'change_rate',
+            # 1. returns (core)
             'log_return',
-            'candle_body',
-            'high_low_spread',
-            
-            # 2. 거래량 지표 (Raw volume은 절대 금지, 비율로 치환된 것만 사용)
+            'return_3',
+            'return_5',
+            'momentum_3',
+            'momentum_5',
+            'momentum_accel_3',
+            'momentum_accel_5',
+
+            # 2. relative price
+            'close_ratio_10',
+            'close_ratio_20',
+
+            # 3. volatility dynamics
+            'atr_5',
+            'atr_change',
+
+            # 4. volume shock
             'volume_ratio',
             'volume_change',
-            
-            # 3. 보조지표 (0~1 사이 혹은 스케일이 안정적인 녀석들)
-            'bb_percent',     # 0~1 사이 값이라 LSTM이 환장하고 좋아함
-            'volatility_5',   # 변동성 크기 표준편차
-            'drawdown_20',     # 최고점 대비 낙폭 비율 (-0.1, -0.2 등)
-            'macd_hist',      # 단기 에너지
-            
-            # 4. 시장 리스크 및 타겟
-            'nasdaq_change_rate'
+
+            # 5. candle structure
+            'candle_body',
+            'high_low_spread',
+             'volume_shock',
+             'volatility_regime',
+             'breakout_pressure'
         ]
+# feature_cols = [
+#             # 1. 가격의 변화율 및 캔들 모양 (이미 0을 기준으로 정규화된 형태)
+#             'change_rate',
+#             'log_return',
+#             'candle_body',
+#             'high_low_spread',
+
+#             # 2. 거래량 지표 (Raw volume은 절대 금지, 비율로 치환된 것만 사용)
+#             'volume_ratio',
+#             'volume_change',
+
+#             # 3. 보조지표 (0~1 사이 혹은 스케일이 안정적인 녀석들)
+#             'bb_percent',     # 0~1 사이 값이라 LSTM이 환장하고 좋아함
+#             'volatility_5',   # 변동성 크기 표준편차
+#             'drawdown_20',     # 최고점 대비 낙폭 비율 (-0.1, -0.2 등)
+#             'macd_hist',      # 단기 에너지
+
+#             # 4. 시장 리스크 및 타겟
+#             'nasdaq_change_rate'
+#         ]
 
 target_col = 'label'
 
@@ -115,21 +118,21 @@ target_col = 'label'
 # 전체 통짜 정규화 대신, 종목 내부에서 각각 독립적으로 스케일링을 먹입니다.
 def scale_by_ticker(dataframe, features):
     scaled_df = dataframe.sort_values(['ticker', 'date']).reset_index(drop=True)
-    
+
     # 2025-07-01 기준으로 데이터 분할 기준점을 잡음 (Data Leakage 방지)
     train_mask = scaled_df['date'] < '2025-07-01'
-    
+
     for ticker, group in scaled_df.groupby('ticker'):
         ticker_mask = scaled_df['ticker'] == ticker
         train_ticker_mask = ticker_mask & train_mask
-        
+
         if train_ticker_mask.sum() > 0:
             scaler = StandardScaler()
             # 훈련 데이터로만 fit
             scaler.fit(scaled_df.loc[train_ticker_mask, features])
             # 해당 종목 전체(Train + Test)를 transform
             scaled_df.loc[ticker_mask, features] = scaler.transform(scaled_df.loc[ticker_mask, features])
-            
+
     return scaled_df
 
 df_scaled = scale_by_ticker(df, feature_cols)
@@ -150,7 +153,7 @@ def create_sequences_all(dataframe, feature_cols, target_col):
         group = group.sort_values('date')
         if len(group) < SEQ_LEN:
             continue
-            
+
         f_array = group[feature_cols].values
         t_array = group[target_col].values
         d_array = group['date'].values
@@ -165,8 +168,8 @@ def create_sequences_all(dataframe, feature_cols, target_col):
 
 
 X_all, y_all, tickers_all, dates_all = create_sequences_all(
-    df_scaled, 
-    feature_cols, 
+    df_scaled,
+    feature_cols,
     target_col
 )
 
@@ -286,7 +289,7 @@ history = model.fit(
 
 pred_prob = model.predict(X_test).flatten()
 
-threshold = 0.6
+threshold = 0.8
 
 pred = (pred_prob >= threshold).astype(int)
 

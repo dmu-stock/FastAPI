@@ -34,7 +34,7 @@ class FeatureProcessor:
         conn.close()
 
         return df
-        
+
     def calc_technical_indicators(self, df, rsi_period=14):
         df = df.sort_values(['ticker','date']).reset_index(drop=True)
 
@@ -81,7 +81,7 @@ class FeatureProcessor:
             gain.groupby(df['ticker'])
             .transform(lambda x : x.rolling(rsi_period).mean())
         )
-        
+
         avg_loss = (
             loss.groupby(df['ticker'])
             .transform(lambda x : x.rolling(rsi_period).mean())
@@ -170,7 +170,7 @@ class FeatureProcessor:
         # 최고가 대비 하락률 (High Drawdown)
         df['max_20'] = df.groupby('ticker')['high'].transform(lambda x: x.rolling(20).max())
         df['drawdown_20'] = (df['adj_close'] - df['max_20']) / df['max_20']
-        
+
         check_cols = ['disparity_20', 'alpha_20', 'drawdown_20', 'future_max_close_3d']
         df = df.dropna(subset=check_cols).reset_index(drop=True)
 
@@ -225,7 +225,7 @@ class FeatureProcessor:
         print(df.columns)
 
         return df
-    
+
 if __name__ == "__main__":
     processor = FeatureProcessor()
     df = processor.get_raw_data()
@@ -233,7 +233,7 @@ if __name__ == "__main__":
 
     today = datetime.now().strftime("%Y%m%d")
     df.to_csv(
-        f"feature__indicator{today}.csv",
+        f"feature__indicator_{today}.csv",
         index=False,
         encoding="utf-8-sig"
     )
