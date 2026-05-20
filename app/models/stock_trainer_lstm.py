@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import tensorflow as tf
+import joblib
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (
@@ -12,13 +13,16 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras.optimizers import Adam
 
-from tensorflow.keras.models import Sequential
+from tensorflow.keras.models import Model
 from tensorflow.keras.layers import (
+    Input,
     LSTM,
     Dense,
     Dropout,
     BatchNormalization,
-    Activation
+    Activation,
+    Concatenate
+    
 )
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
@@ -27,7 +31,7 @@ from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 # ---------------------------------------------------
 
 # df = pd.read_csv("feature__indicator20260518.csv")
-df = pd.read_csv("feature__indicator_lstm20260519.csv")
+df = pd.read_csv("feature__indicator_lstm20260520.csv")
 
 df['date'] = pd.to_datetime(df['date'])
 
@@ -37,29 +41,35 @@ df['date'] = pd.to_datetime(df['date'])
 
 feature_cols = [
         # ===== 방향 흐름 =====
-        'log_return',
-        'return_1',
-        'return_3',
+            'return_3',
+            'return_20',
 
-        # ===== 추세 변화 =====
-        'momentum_3',
-        'momentum_accel_3',
-        # 'ma_slope_5',
-        # 'volatility_compression',
+            # ===== 추세 변화 =====
+            'momentum_3',
+            'momentum_20',          
+            'momentum_60',          
+            'momentum_accel_3',
+            'momentum_accel_20',
 
-        # ===== 변동성 흐름 =====
-        'atr_change',
-        'volatility_regime',
-        # ===== 거래량 흐름 =====
-        'volume_ratio',
-        'volume_change',
-        'volume_zscore',
-         # ===== 캔들 흐름 =====
-        'candle_body',
-        'high_low_spread',
+            # ===== 변동성 흐름 =====
+            'atr_change',          
+            'volatility_regime_20', 
+            'volatility_regime_60', 
 
-        # ===== 시장 동조 =====
-        'relative_strength',
+            # ===== 거래량 흐름 =====
+            'volume_ratio',
+            'volume_change',
+            'volume_zscore_20',    
+            'volume_zscore_60',     
+
+            # ===== 캔들 흐름 =====
+            'candle_body',
+            'high_low_spread',
+
+            # ===== 시장 동조 =====
+            'relative_strength',
+            'high_breakout_20',
+            'high_breakout_60',
 ]
 
 
@@ -70,6 +80,7 @@ target_col = 'label'
 # ---------------------------------------------------
 # 종목 내부에서 각각 독립적으로 스케일링
 def scale_by_ticker(dataframe, features):
+    scalers = {}
     scaled_df = dataframe.sort_values(['ticker', 'date']).reset_index(drop=True)
 
     # 2025-07-01 기준으로 데이터 분할 기준점을 잡음 (Data Leakage 방지)
@@ -85,7 +96,8 @@ def scale_by_ticker(dataframe, features):
             scaler.fit(scaled_df.loc[train_ticker_mask, features])
             # 해당 종목 전체(Train + Test)를 transform
             scaled_df.loc[ticker_mask, features] = scaler.transform(scaled_df.loc[ticker_mask, features])
-
+            scalers[ticker] = scaler
+    joblib.dump(scalers, 'ticker_scalers.pkl')
     return scaled_df
 
 df_scaled = scale_by_ticker(df, feature_cols)
@@ -96,41 +108,57 @@ df_scaled = scale_by_ticker(df, feature_cols)
 # 시퀀스 생성 후 날짜 기준으로 Train/Test 분할
 # ---------------------------------------------------
 
-SEQ_LEN = 20
+SEQ_LEN_20 = 20
+SEQ_LEN_60 = 60
 
 def create_sequences_all(dataframe, feature_cols, target_col):
-    X, y, tickers, dates = [], [], [], []
+    X_20, X_60, y, tickers, dates = [], [], [], [], []
     grouped = dataframe.groupby('ticker')
 
     for ticker, group in grouped:
         group = group.sort_values('date')
-        if len(group) < SEQ_LEN:
+
+        if len(group) < SEQ_LEN_60:
             continue
 
         f_array = group[feature_cols].values
         t_array = group[target_col].values
         d_array = group['date'].values
 
-        for i in range(len(group) - SEQ_LEN):
-            X.append(f_array[i:i+SEQ_LEN])
-            y.append(t_array[i+SEQ_LEN])
+        for i in range(SEQ_LEN_60 - 1, len(group)):
+            # 1) 20일 시퀀스 (오늘 기준 과거 20일: i-19 부터 i 까지)
+            X_20.append(f_array[i - (SEQ_LEN_20 - 1) : i + 1])
+            
+            # 2) 60일 시퀀스 (오늘 기준 과거 60일: i-59 부터 i 까지)
+            X_60.append(f_array[i - (SEQ_LEN_60 - 1) : i + 1])
+            
+            y.append(t_array[i])
             tickers.append(ticker)
-            dates.append(d_array[i+SEQ_LEN])
+            dates.append(d_array[i])
 
-    return np.array(X), np.array(y), tickers, np.array(dates)
+    return np.array(X_20), np.array(X_60), np.array(y), tickers, np.array(dates)
 
 
-X_all, y_all, tickers_all, dates_all = create_sequences_all(
+X_20_all, X_60_all, y_all, tickers_all, dates_all = create_sequences_all(
     df_scaled,
     feature_cols,
     target_col
 )
 
+# ------------------------------------------------------------------
+# 2. 시계열 기준 데이터 분할 (Train / Test / Val)
+# ------------------------------------------------------------------
+# 날짜형 정렬 유지 위해 Timestamp 변환 후 마스킹 처리
+dates_all_dt = pd.to_datetime(dates_all)
+
 train_idx = dates_all < pd.to_datetime('2025-07-01')
 test_idx = dates_all >= pd.to_datetime('2025-07-01')
 
-X_train, y_train = X_all[train_idx], y_all[train_idx]
-X_test, y_test = X_all[test_idx], y_all[test_idx]
+X_20_train, X_20_test = X_20_all[train_idx], X_20_all[test_idx]
+X_60_train, X_60_test = X_60_all[train_idx], X_60_all[test_idx]
+
+y_train, y_test = y_all[train_idx], y_all[test_idx]
+
 test_tickers_split = [tickers_all[i] for i, val in enumerate(test_idx) if val]
 test_dates_split = dates_all[test_idx]
 
@@ -144,42 +172,51 @@ split_time = np.percentile(train_dates_only, 80) # 하위 80% 시점 날짜 추�
 final_train_idx = train_dates_only <= split_time
 val_idx = train_dates_only > split_time
 
-X_train_final, y_train_final = X_train[final_train_idx], y_train[final_train_idx]
-X_val, y_val = X_train[val_idx], y_train[val_idx]
+X_20_train_final, X_20_val = X_20_train[final_train_idx], X_20_train[val_idx]
+X_60_train_final, X_60_val = X_60_train[final_train_idx], X_60_train[val_idx]
+y_train_final, y_val = y_train[final_train_idx], y_train[val_idx]
 
-print("X_train_final:", X_train_final.shape)
-print("X_val:", X_val.shape)
-print("X_test:", X_test.shape)
+print("--- 데이터셋 분할 ---")
+print("X_20_train_final:", X_20_train_final.shape, " | X_60_train_final:", X_60_train_final.shape)
+print("X_20_val:", X_20_val.shape, "         | X_60_val:", X_60_val.shape)
+print("X_20_test:", X_20_test.shape, "       | X_60_test:", X_60_test.shape)
 
 # ---------------------------------------------------
 # LSTM 모델
 # ---------------------------------------------------
+num_features = len(feature_cols)
 
-model = Sequential([
-    LSTM(
-        64,
-        return_sequences=True,
-        input_shape=(SEQ_LEN, len(feature_cols)),
-    ),
-    BatchNormalization(),
-    Dropout(0.3),
+# 다중 입력 레이어 정의
+input_20 = Input(shape=(SEQ_LEN_20, num_features), name='Input_20d')
+input_60 = Input(shape=(SEQ_LEN_60, num_features), name='Input_60d')
 
-    LSTM(
-        32,
-        return_sequences=False,
-    ),
-     BatchNormalization(),
-    Dropout(0.3),
+# 채널 1: 20일선 추세 추출 레이어 (기존 지호님 아키텍처 반영)
+lstm_20_1 = LSTM(64, return_sequences=True)(input_20)
+lstm_20_1 = BatchNormalization()(lstm_20_1)
+lstm_20_1 = Dropout(0.3)(lstm_20_1)
 
-    # 완전 연결 레이어: he_normal 초기화 추가로 Relu 효율 극대화
-    Dense(16, kernel_initializer='he_normal'),
-    BatchNormalization(),
-    Activation('relu'),
-    
-    Dense(1, activation='sigmoid')
+lstm_20_2 = LSTM(32, return_sequences=False)(lstm_20_1)
+lstm_20_2 = BatchNormalization()(lstm_20_2)
+lstm_20_2 = Dropout(0.3)(lstm_20_2)
 
-])
+# 채널 2: 60일선 중기 추세 추출 레이어 (타임스텝이 길어 LSTM 레이어 확장)
+lstm_60_1 = LSTM(128, return_sequences=True)(input_60)
+lstm_60_1 = BatchNormalization()(lstm_60_1)
+lstm_60_1 = Dropout(0.3)(lstm_60_1)
 
+lstm_60_2 = LSTM(64, return_sequences=False)(lstm_60_1)
+lstm_60_2 = BatchNormalization()(lstm_60_2)
+lstm_60_2 = Dropout(0.3)(lstm_60_2)
+
+merged = Concatenate()([lstm_20_2, lstm_60_2])
+
+dense = Dense(16, kernel_initializer='he_normal')(merged)
+dense = BatchNormalization()(dense)
+dense = Activation('relu')(dense)
+
+output = Dense(1, activation='sigmoid', name='Output_Probability')(dense)
+
+model = Model(inputs=[input_20, input_60], outputs=output)
 # ---------------------------------------------------
 # Compile
 # ---------------------------------------------------
@@ -189,9 +226,10 @@ model.compile(
     loss='binary_crossentropy',
     metrics=[
         'accuracy', 
-        tf.keras.metrics.AUC(name='auc') # 'auc'라는 이름으로 메트릭 추가
+        tf.keras.metrics.AUC(name='auc')
     ]
 )
+model.summary()
 
 # ---------------------------------------------------
 # Early Stopping
@@ -225,21 +263,22 @@ print(class_weights)
 # ---------------------------------------------------
 
 history = model.fit(
-    X_train_final,
-    y_train_final,
-    validation_data=(X_val, y_val),
+    x=[X_20_train_final, X_60_train_final],
+    y=y_train_final,
+    validation_data=([X_20_val, X_60_val], y_val),
     epochs=50,
     batch_size=128,
     callbacks=[early_stop],
     class_weight=class_weights,
     verbose=1,
 )
+model.save('best_multi_input_lstm.keras')
 
 # ---------------------------------------------------
 # 예측
 # ---------------------------------------------------
 
-pred_prob = model.predict(X_test).flatten()
+pred_prob = model.predict([X_20_test, X_60_test]).flatten()
 
 # 전체 체점용
 threshold = 0.53
@@ -249,7 +288,6 @@ pred = (pred_prob >= threshold).astype(int)
 # ---------------------------------------------------
 # 평가
 # ---------------------------------------------------
-
 # 평가 리포트 출력
 print("\n===== Classification Report =====")
 print(classification_report(y_test, pred))
@@ -259,7 +297,6 @@ print(f"ROC-AUC  : {roc_auc_score(y_test, pred_prob):.4f}")
 # ---------------------------------------------------
 # 예측 결과 저장
 # ---------------------------------------------------
-
 result_df = pd.DataFrame({
     'ticker': test_tickers_split,
     'date': test_dates_split,
@@ -280,7 +317,7 @@ index=False
 )
 
 print("\nlstm_prediction_result.csv 저장 완료")
-print(len(X_all), len(y_all), len(tickers_all), len(dates_all))
+print(len(X_20_all), len(y_all), len(tickers_all), len(dates_all))
 
 # ---------------------------------------------------
 # Top-K 평가
@@ -312,9 +349,6 @@ for date, group in result_df.groupby('date'):
 
     real_top3_accuracy = np.mean(daily_top3_actuals) if daily_top3_actuals else 0
     real_top5_accuracy = np.mean(daily_top5_actuals) if daily_top5_actuals else 0
-
-
-
 
 print(f"가드레일 기준: 예측 확률 {CONFIDENCE_THRESHOLD} 이상인 종목만 진입")
 print(f"매일 랭킹 Top 3 매수 시 진짜 타율 : {real_top3_accuracy:.4f}")

@@ -445,8 +445,8 @@ if __name__ == "__main__":
     target_tickers = ["SPY", "QQQ"]
     topics = "financial_markets"
     # Alpha Vantage는 YYYYMMDDTHHMM 형식을 사용
-    s_dt = "20250523T0000"
-    e_dt = "20250531T2359"
+    s_dt = "20250525T0000"
+    e_dt = "20250601T2359"
 
     new_data_df = fetch_alpha_vantage_news(topics, s_dt, e_dt, API_KEY,"vintage_2025.csv")
     if new_data_df is not None:

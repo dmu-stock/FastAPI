@@ -23,7 +23,7 @@ import numpy as np
 from app.database.sqlite_db import get_connection
 from datetime import datetime
 
-class FeatureProcessor:
+class FeatureProcessorGBM:
     def __init__(self, db_path: str = "stock_data.db"):
         self.db_path = db_path
 
@@ -35,7 +35,7 @@ class FeatureProcessor:
 
         return df
 
-    def calc_technical_indicators(self, df, rsi_period=14):
+    def calc_technical_indicators(self, df, rsi_period=14,is_inference=False):
         df = df.sort_values(['ticker','date']).reset_index(drop=True)
 
         # ---------------------------
@@ -149,49 +149,48 @@ class FeatureProcessor:
         df['is_up'] = (df['change_rate'] > 0).astype(int)
         df['psychological'] = df.groupby('ticker')['is_up'].transform(lambda x: x.rolling(10).mean()) * 100
 
-        # 미래 수익률
-        df['target_1'] = (
-            df.groupby('ticker')['adj_close']
-            .shift(-1) / df['adj_close'] - 1
-        )
-
-        df['target_5'] = (
-            df.groupby('ticker')['adj_close']
-            .shift(-5) / df['adj_close'] - 1
-        )
-        # 분류 (노이즈 제거)
-        # df['label'] = (df['target_5'] > 0.03).astype(int)
-        # print(df['label'].value_counts(normalize=True))
-
-        # 내일부터 3일 이내에 '종가 기준'으로 한 번이라도 2.5% 이상 상승하면 1, 아니면 0
-        # df['future_max_close_3d'] = df.groupby('ticker')['adj_close'].transform(lambda x: x.rolling(3, min_periods=1).max().shift(-3))
-        # df['label'] = np.where((df['future_max_close_3d'] - df['adj_close']) / df['adj_close'] >= 0.025, 1, 0)
-        # ---------------------------------------------------
-        # 일반인 어플 최적화: 미래 3영업일 '종가' 기준 라벨링
-        # ---------------------------------------------------
-
-        # 1. 내일 종가(t1), 모레 종가(t2), 글피 종가(t3)를 미래에서 정확히 당겨오기
-        df['close_t1'] = df.groupby('ticker')['adj_close'].shift(-1)
-        df['close_t2'] = df.groupby('ticker')['adj_close'].shift(-2)
-        df['close_t3'] = df.groupby('ticker')['adj_close'].shift(-3)
-
-        # 2. 오늘 종가(adj_close) 대비 미래 각 영업일 종가의 수익률 계산
-        df['return_t1'] = (df['close_t1'] - df['adj_close']) / df['adj_close']
-        df['return_t2'] = (df['close_t2'] - df['adj_close']) / df['adj_close']
-        df['return_t3'] = (df['close_t3'] - df['adj_close']) / df['adj_close']
-
-        # 3. 미래 3일의 '종가 기준 최고 수익률'만 쏙 뽑아내기
-        df['max_return_3d'] = df[['return_t1', 'return_t2', 'return_t3']].max(axis=1)
-
-        # 4. 라벨링: 3일 중 한 번이라도 종가 기준으로 +2.5% 이상 올랐으면 1, 아니면 0
-        df['label'] = np.where(df['max_return_3d'] >= 0.025, 1, 0)
-
         # 최고가 대비 하락률 (High Drawdown)
         df['max_20'] = df.groupby('ticker')['high'].transform(lambda x: x.rolling(20).max())
         df['drawdown_20'] = (df['adj_close'] - df['max_20']) / df['max_20']
 
-        check_cols = ['disparity_20', 'alpha_20', 'drawdown_20','close_t1', 'close_t2', 'close_t3']
-        df = df.dropna(subset=check_cols).reset_index(drop=True)
+
+        if not is_inference:
+            # 미래 수익률
+            df['target_1'] = (
+                df.groupby('ticker')['adj_close']
+                .shift(-1) / df['adj_close'] - 1
+            )
+
+            df['target_5'] = (
+                df.groupby('ticker')['adj_close']
+                .shift(-5) / df['adj_close'] - 1
+            )
+
+            # 1. 내일 종가(t1), 모레 종가(t2), 글피 종가(t3)를 미래에서 정확히 당겨오기
+            df['close_t1'] = df.groupby('ticker')['adj_close'].shift(-1)
+            df['close_t2'] = df.groupby('ticker')['adj_close'].shift(-2)
+            df['close_t3'] = df.groupby('ticker')['adj_close'].shift(-3)
+
+            # 2. 오늘 종가(adj_close) 대비 미래 각 영업일 종가의 수익률 계산
+            df['return_t1'] = (df['close_t1'] - df['adj_close']) / df['adj_close']
+            df['return_t2'] = (df['close_t2'] - df['adj_close']) / df['adj_close']
+            df['return_t3'] = (df['close_t3'] - df['adj_close']) / df['adj_close']
+
+            # 3. 미래 3일의 '종가 기준 최고 수익률'만 쏙 뽑아내기
+            df['max_return_3d'] = df[['return_t1', 'return_t2', 'return_t3']].max(axis=1)
+
+            # 4. 라벨링: 3일 중 한 번이라도 종가 기준으로 +2.5% 이상 올랐으면 1, 아니면 0
+            df['label'] = np.where(df['max_return_3d'] >= 0.025, 1, 0)
+
+            check_cols = ['disparity_20', 'alpha_20', 'drawdown_20','close_t1', 'close_t2', 'close_t3']
+            df = df.dropna(subset=check_cols).reset_index(drop=True)
+        else:
+            check_cols_inf = ['disparity_20', 'alpha_20', 'drawdown_20', 'rsi', 'macd_hist']
+            df = df.dropna(subset=check_cols_inf).reset_index(drop=True)
+            df['label'] = -1
+
+        
+        
 
         meta_cols = ['ticker', 'date']
         feature_cols = [
@@ -240,13 +239,15 @@ class FeatureProcessor:
             'tr_5'
         ]
         df = df[meta_cols + feature_cols]
+        if not is_inference:
+            feature_cols.append('label')
 
         print(df.columns)
 
         return df
 
 if __name__ == "__main__":
-    processor = FeatureProcessor()
+    processor = FeatureProcessorGBM()
     df = processor.get_raw_data()
     df = processor.calc_technical_indicators(df)
 

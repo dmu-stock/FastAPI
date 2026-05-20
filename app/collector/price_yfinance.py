@@ -25,63 +25,38 @@ from app.database.sqlite_db import save_price_to_db
 # (Yahoo Finance 티커 기준)
 # -------------------------------------------------
 BLUE_CHIP_STOCKS = [
+    "AAPL", "ABBV", "ABT", "ACN", "ADBE", "ADI", "ADM", "ADP", "ADSK", "AIG",
+    "ALL", "AMAT", "AMD", "AMGN", "AMZN", "ANET", "APA", "APD", "APH", "AVGO",
+    "AXP", "BA", "BAC", "BEN", "BK", "BKNG", "BLK", "BMY", "BRK-B", "BSX",
+    "C", "CAT", "CELG", "CHTR", "CL", "CMCSA", "COF", "COP", "COST", "CRM",
+    "CSCO", "CSX", "CTSH", "CVS", "CVX", "DE", "DHR", "DIS", "DOW", "DUK",
+    "EMR", "EXC", "F", "META", "FDX", "GD", "GE", "GILD", "GM", "GOOG",
+    "GOOGL", "GS", "HD", "HON", "IBM", "INTC", "INTU", "ISRG", "JNJ", "JPM",
+    "KMI", "KO", "LLY", "LMT", "LOW", "MA", "MCD", "MDT", "MET", "MMM",
+    "MO", "MRK", "MS", "MSFT", "NEE", "NFLX", "NKE", "NVDA", "ORCL", "PEP",
+    "PFE", "PG", "PM", "PYPL", "QCOM", "RTX", "SBUX", "SCHW", "SO", "SPG",
+    "T", "TGT", "TMO", "TMUS", "TSLA", "TXN", "UNH", "UNP", "UPS", "USB",
+    "V", "VZ", "WFC", "WMB", "WMT", "XOM"
+]
+CORE_STOCKS = [
 
-    # Big Tech
-    "AAPL",    # Apple
-    "MSFT",    # Microsoft
-    "AMZN",    # Amazon
-    "GOOGL",   # Alphabet
-    "META",    # Meta
-    "NVDA",    # NVIDIA
-    "TSLA",    # Tesla
+    "NVDA",
+    "AMD",
+    "AVGO",
+    "MU",
+    "QCOM",
 
-    # Semiconductor
-    "AMD",     # AMD
-    "AVGO",    # Broadcom
-    "QCOM",    # Qualcomm
-    "INTC",    # Intel
-    "MU",      # Micron
+    "MSFT",
+    "AMZN",
+    "META",
+    "GOOGL",
+    "TSLA",
 
-    # Finance
-    "JPM",     # JPMorgan
-    "BAC",     # Bank of America
-    "GS",      # Goldman Sachs
-    "MS",      # Morgan Stanley
-    "V",       # Visa
-    "MA",      # Mastercard
-
-    # Healthcare
-    "UNH",     # UnitedHealth
-    "JNJ",     # Johnson & Johnson
-    "PFE",     # Pfizer
-    "LLY",     # Eli Lilly
-    "MRK",     # Merck
-
-    # Consumer
-    "WMT",     # Walmart
-    "COST",    # Costco
-    "KO",      # Coca-Cola
-    "PEP",     # Pepsi
-    "MCD",     # McDonald's
-    "NKE",     # Nike
-
-    # Industrial
-    "CAT",     # Caterpillar
-    "GE",      # General Electric
-    "HON",     # Honeywell
-    "BA",      # Boeing
-
-    # Energy
-    "XOM",     # Exxon Mobil
-    "CVX",     # Chevron
-
-    # Communication / Entertainment
-    "NFLX",    # Netflix
-    "DIS",     # Disney
-
-    # ETFs
-    # "SPY",     # S&P500 ETF
-    # "QQQ",     # Nasdaq ETF
+    "NFLX",
+    "PLTR",
+    "SNOW",
+    "CRWD",
+    "PANW"
 ]
 
 def get_nasdaq_data(period: str = "4y") ->  Optional[pd.DataFrame]:
@@ -210,7 +185,7 @@ def fetch_price_data(
 
 
 def fetch_all_stocks_price_data(
-    tickers: List[str] = BLUE_CHIP_STOCKS,
+    tickers: List[str] = CORE_STOCKS,
     period: str = "3y"
 ) -> pd.DataFrame:
     """
