@@ -6,6 +6,7 @@ import tensorflow as tf
 from datetime import datetime
 from app.config.config import GBM_FEATURE_COLS,LSTM_FEATURE_COLS,TICKERS
 from tensorflow.keras.models import load_model
+from app.features.news_sentiment_processor import process_news_stock
 
 # ===================================================
 #  함수/클래스 호출
@@ -20,8 +21,8 @@ from app.features.processor_lstm import FeatureProcessorLSTM
 # ---------------------------------------------------
 # 가드레일 & 타임프레임 스펙 고정
 # ---------------------------------------------------
-LGBM_THRESHOLD = 0.55
-LSTM_THRESHOLD = 0.58
+LGBM_THRESHOLD = 0.57
+LSTM_THRESHOLD = 0.61
 SEQ_LEN_20 = 20
 SEQ_LEN_60 = 60
 
@@ -49,6 +50,13 @@ if df_raw.empty:
     print("[에러] 최신 마켓 데이터 수집에 실패")
     exit()
 
+vix_now = float(df_raw['vix'].iloc[-1])
+print(f"현재 VIX: {vix_now:.2f}")
+
+if vix_now >= 30:
+    print("VIX 30 초과 → 극공포 구간, 매수 중단")
+    exit()
+
 # ===================================================
 # 듀얼 프로세서 가동 (is_inference=True 필수 지정)
 # ===================================================
@@ -69,6 +77,8 @@ df_features_lstm = df_features_lstm.replace([np.inf, -np.inf], np.nan)
 # 종목별 독립 추론 루프 가동
 # ===================================================
 results = []
+print("전체 종목 뉴스 감성 분석 시작")
+ticker_sentiment=process_news_stock()
 
 for ticker in TICKERS:
     # -----------------------------------------------
@@ -100,10 +110,11 @@ for ticker in TICKERS:
     seq_20 = ticker_lstm_ordered.iloc[-SEQ_LEN_20:].values
     seq_60 = ticker_lstm_ordered.iloc[-SEQ_LEN_60:].values
     
-    ticker_scaler = scalers[ticker] 
+     
     if ticker not in scalers:
         print(f"[경고] {ticker} 스케일러 없음, 스킵")
         continue
+    ticker_scaler = scalers[ticker]
     
     seq_20_scaled = ticker_scaler.transform(pd.DataFrame(seq_20, columns=lstm_cols))
     seq_60_scaled = ticker_scaler.transform(pd.DataFrame(seq_60, columns=lstm_cols))
@@ -129,16 +140,33 @@ for ticker in TICKERS:
     # 앙상블 가중치 결합 및 데이터 적재 (7:3)
     # -----------------------------------------------
     final_prob = 2 * (prob_lgb * prob_lstm) / (prob_lgb + prob_lstm + 1e-9)
+
+    # -----------------------------------------------
+    # 뉴스 점수
+    # -----------------------------------------------
+    
+    news_score = ticker_sentiment.get(ticker, 0.0)
+    sentiment_boost = news_score * 0.05
+    final_prob_adjusted = np.clip(final_prob + sentiment_boost, 0, 1)
     
     results.append({
         'ticker': ticker,
         'prob_lgb': prob_lgb,
         'prob_lstm': prob_lstm,
-        'final_prob': final_prob
+        'final_prob': final_prob,
+        'final_prob_adjusted': final_prob_adjusted,
+        'news_score': round(news_score, 4)
     })
+    
+    # results.append({
+    #     'ticker': ticker,
+    #     'prob_lgb': prob_lgb,
+    #     'prob_lstm': prob_lstm,
+    #     'final_prob': final_prob
+    # })
 
 # 결과 데이터프레임 빌드
-inference_df = pd.DataFrame(results, columns=['ticker', 'prob_lgb', 'prob_lstm', 'final_prob'])
+inference_df = pd.DataFrame(results, columns=['ticker', 'prob_lgb', 'prob_lstm', 'final_prob','final_prob_adjusted','news_score'])
 
 # ===================================================
 # 교집합 AND 가드레일 필터링 알고리즘 가동

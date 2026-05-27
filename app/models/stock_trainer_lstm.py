@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import torch
 import tensorflow as tf
 import joblib
 import random
@@ -34,13 +35,10 @@ from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 #----------------------------------------------------
 # 데이터 로드
 # ---------------------------------------------------
-gpus = tf.config.list_physical_devices('GPU')
-if gpus:
-    for gpu in gpus:
-        tf.config.experimental.set_memory_growth(gpu, True)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # df = pd.read_csv("feature__indicator20260518.csv")
-df = pd.read_csv("feature__indicator_lstm20260526.csv")
+df = pd.read_csv("feature__indicator_lstm20260527.csv")
 
 df['date'] = pd.to_datetime(df['date'])
 

@@ -21,8 +21,8 @@ print("\n===== Ensemble Daily Top-K Performance =====")
 
 ensemble_top3_actuals = []
 
-LGBM_THRESHOLD = 0.70
-LSTM_THRESHOLD = 0.55
+LGBM_THRESHOLD = 0.57
+LSTM_THRESHOLD = 0.61
 
 # 날짜순으로 정렬 후 그룹화
 ensemble_df = ensemble_df.sort_values(['date', 'final_prob'], ascending=[True, False])

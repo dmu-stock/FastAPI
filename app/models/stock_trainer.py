@@ -3,7 +3,8 @@ import os
 import numpy as np
 import joblib
 from app.config.config import GBM_FEATURE_COLS
-from lightgbm import LGBMClassifier
+import lightgbm as lgb
+from lightgbm import LGBMClassifier, early_stopping, log_evaluation
 from sklearn.metrics import (
     classification_report,
     accuracy_score,
@@ -13,16 +14,10 @@ from sklearn.metrics import (
 # -----------------------------
 # 데이터 로드
 # -----------------------------
-df_tech = pd.read_csv("feature__indicator_20260522.csv")
-# df_news = pd.read_csv("news_sentiment_20260513.csv")
-
-# final_df = pd.merge(df_tech,[['ticker', 'date', 'sentiment_score']],on=['ticker', 'date'], how='left')
-
-# final_df['sentiment_score'] = final_df['sentiment_score'].fillna(0)
+df_tech = pd.read_csv("feature__indicator_20260527.csv")
 
 # 날짜 타입 변환
 df_tech['date'] = pd.to_datetime(df_tech['date'])
-# final_df = final_df[abs(final_df['sentiment_score'] - 0.15) > 0.05]
 
 # -----------------------------
 # Feature 선택
@@ -32,48 +27,57 @@ feature_cols = GBM_FEATURE_COLS
 target_col = 'label'
 
 # -----------------------------
-# Train / Test Split
-# 시계열이라 날짜 기준 분리
+# Train / Val / Test Split
 # -----------------------------
-train = df_tech[df_tech['date'] < '2025-07-01']
-test = df_tech[df_tech['date'] >= '2025-07-01']
+train = df_tech[df_tech['date'] < '2024-07-01']
+val   = df_tech[(df_tech['date'] >= '2024-07-01') & 
+                (df_tech['date'] < '2025-07-01')]
+test  = df_tech[df_tech['date'] >= '2025-07-01']
 
-X_train = train[feature_cols]
-y_train = train[target_col]
+X_train, y_train = train[feature_cols], train[target_col]
+X_val,   y_val   = val[feature_cols],   val[target_col]
+X_test,  y_test  = test[feature_cols],  test[target_col]
 
-X_test = test[feature_cols]
-y_test = test[target_col]
-
-print(f"Train Size: {len(train)}")
-print(f"Test Size: {len(test)}")
+print(f"Train: {len(train)} | Val: {len(val)} | Test: {len(test)}")
+print(f"Train 양성비율: {y_train.mean():.4f}")
+print(f"Val   양성비율: {y_val.mean():.4f}")
+print(f"Test  양성비율: {y_test.mean():.4f}")
 
 # -----------------------------
 # LightGBM 모델 생성
 # -----------------------------
 model = LGBMClassifier(
-    n_estimators=1000,
+    n_estimators=2000,
+    learning_rate=0.005,
+    max_depth=6,
+    num_leaves=20,
+    min_data_in_leaf=80,
+    feature_fraction=0.7,
+    subsample=0.7,
+    subsample_freq=1,
+    colsample_bytree=0.7,
+    lambda_l1=0.1,
+    lambda_l2=0.1,
     objective='binary',
     boosting_type='gbdt',
-
-    learning_rate=0.01,
-
-    max_depth=5,
-    num_leaves=31,
-    min_data_in_leaf= 50,
-    feature_fraction= 0.8,
-    force_col_wise= True,
-    subsample=0.8,
-    colsample_bytree=0.7,
-
+    force_col_wise=True,
     random_state=42,
     class_weight='balanced',
-    verbose= -1,
+    verbose=-1,
 )
 
 # -----------------------------
 # 학습
 # -----------------------------
-model.fit(X_train, y_train)
+model.fit(
+    X_train, y_train,
+    eval_set=[(X_val, y_val)],
+    callbacks=[
+        early_stopping(stopping_rounds=50),
+        log_evaluation(100)
+    ]
+)
+print(f"\n최적 트리 수: {model.best_iteration_}")
 joblib.dump(model, 'best_lgbm_model.pkl')
 
 # -----------------------------

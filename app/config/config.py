@@ -26,10 +26,13 @@ LSTM_FEATURE_COLS = [
 
     # ===== 시장 동조 =====
     'relative_strength',
-    'high_breakout_20',
+    # 'high_breakout_20',
     'high_breakout_60',
     # ===== 시장 지수 =====
-    'vix_vs_stock_vol' 
+    'vix_vs_stock_vol',
+    # 시장 센티멘트 흐름
+    'market_sent_ma3',       # 단기 흐름
+    'market_sent_momentum',  # 변화 속도 
 ]
 
 GBM_FEATURE_COLS = [
@@ -39,12 +42,12 @@ GBM_FEATURE_COLS = [
     'return_5',
 
     # 이격도
-    'disparity_20',
+    # 'disparity_20',
     # 시장 상대 강도
-    'alpha',
+    # 'alpha',
     'alpha_5',
     'alpha_20',
-    'alpha_divergence',
+    # 'alpha_divergence',
     # 이동평균
     'ma_ratio',
     # 'price_ma20',
@@ -65,8 +68,12 @@ GBM_FEATURE_COLS = [
     'tr_5',
     'pullback_zscore',
     'price_position_52w',
-    'disparity_zscore'
-    # ===== 시장 지수 =====
+    # 'disparity_zscore'
+    # 시장 센티멘트
+    'market_sent_mean',      # 오늘 시장 감성
+    'market_sent_ma3',       # 3일 흐름
+    'market_sent_momentum',  # 변화 방향
+    'market_news_surge',     # 뉴스 급증
 
     
 ]

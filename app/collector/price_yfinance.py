@@ -224,6 +224,8 @@ def fetch_all_stocks_price_data(
     nasdaq_df=get_nasdaq_data(period=period)
     regime_df = get_market_regime_data(period=period)
 
+    sentiment_df = pd.read_csv("market_sentiment.csv")
+
     for ticker in tickers:
         print(f"[수집 중] {ticker} ...")
         df = fetch_price_data(ticker,nasdaq_df,period=period)
@@ -243,6 +245,7 @@ def fetch_all_stocks_price_data(
     # 날짜형식 통일
     combined_df['date'] = pd.to_datetime(combined_df['date'])
     regime_df['date']   = pd.to_datetime(regime_df['date'])
+    sentiment_df['date']   = pd.to_datetime(sentiment_df['date'])
 
     # regime 1번만 병합
     if regime_df is not None:
@@ -252,6 +255,30 @@ def fetch_all_stocks_price_data(
     else:
         combined_df['vix'] = 0.0
         combined_df['tnx'] = 0.0
+
+    # 시장 센티멘트 병합
+    if sentiment_df is not None:
+        sent_cols = [
+            'date',
+            'market_sent_mean',
+            'market_sent_ma3',
+            'market_sent_ma5',
+            'market_sent_momentum',
+            'market_news_surge'
+        ]
+        combined_df = pd.merge(combined_df,sentiment_df[sent_cols], on='date', how='left')
+
+        # 뉴스 없는 날 0 채움
+        fill_cols = ['market_sent_mean', 'market_sent_ma3', 
+                     'market_sent_ma5', 'market_sent_momentum', 
+                     'market_news_surge']
+        combined_df[fill_cols] = combined_df[fill_cols].fillna(0)
+    else:
+        combined_df['market_sent_mean']     = 0.0
+        combined_df['market_sent_ma3']      = 0.0
+        combined_df['market_sent_ma5']      = 0.0
+        combined_df['market_sent_momentum'] = 0.0
+        combined_df['market_news_surge']    = 0.0
 
     print(f"\n[완료] 총 {len(data_frames)}개 종목, {len(combined_df)}개 행 수집")
     return combined_df
