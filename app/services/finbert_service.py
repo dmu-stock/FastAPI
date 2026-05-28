@@ -40,8 +40,8 @@ class FinBertSentimentAnalyzer:
                 sentiment_score = confidence
             elif label == "Negative":
                 sentiment_score = -confidence
-            else:
-                sentiment_score = confidence * 0.15
+            else:  # Neutral
+                sentiment_score = 0.0
 
             analyzed_results.append({
                 "label": label,

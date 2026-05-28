@@ -1,26 +1,7 @@
-"""
-news_crawler.py
-
-[무엇을 하는 파일인가?]
-- Yahoo Finance에서 뉴스 '헤드라인'만 수집한다.
-- 뉴스 수집 범위를
-  1) 개별 종목
-  2) 섹터(ETF)
-  3) 시장/지수(ETF)
-  로 확장하여 데이터 부족 문제를 보완한다.
-- 수집한 헤드라인을 LLM으로 전처리하여
-  FinBERT 감정 분석에 바로 사용할 수 있는 형태로 반환한다.
-
-[왜 이렇게 설계했는가?]
-- 뉴스 본문은 의견·배경 설명이 많아 감정 분석 노이즈가 크다.
-- 시장 반응이 가장 압축된 정보는 '헤드라인'이므로 헤드라인만 사용한다.
-- 개별 종목 뉴스만으로는 표본이 적을 수 있어,
-  섹터/시장 뉴스로 맥락 정보를 함께 제공한다.
-"""
-
 import yfinance as yf
 import pandas as pd
 from typing import List
+from app.config.config import TICKERS
 
 
 # -------------------------------------------------
@@ -32,6 +13,7 @@ NEWS_COLUMNS = [
     "ticker",         # 티커 (종목 / 섹터 ETF / 시장 ETF)
     "news_type",      # stock / sector / market
     "headline",       # 원본 뉴스 헤드라인
+    "clean_headline", # LLM 전처리 후 헤드라인 (기본값 빈 문자열)
     "source",         # 뉴스 출처 (Reuters, Bloomberg 등)
 ]
 
@@ -93,12 +75,12 @@ def fetch_news_by_ticker(ticker: str, news_type: str) -> pd.DataFrame:
             source = content.get("provider", {}).get("displayName", "")
 
             rows.append({
-                "date": date,
-                "ticker": ticker,
-                "news_type": news_type,
-                "headline": headline,
+                "date":           date,
+                "ticker":         ticker,
+                "news_type":      news_type,
+                "headline":       headline,
                 "clean_headline": "",
-                "source": source,
+                "source":         source,
             })
 
         except Exception:
@@ -144,7 +126,7 @@ def fetch_all_tickers_news(tickers: list) -> pd.DataFrame:
 # 단독 실행 테스트
 # -------------------------------------------------
 if __name__ == "__main__":
-    df_news = fetch_all_tickers_news(save_debug_csv=True)
+    df_news = fetch_all_tickers_news(TICKERS)
 
     print("\n[미리보기]")
     print(df_news.head(10))

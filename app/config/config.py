@@ -31,22 +31,21 @@ LSTM_FEATURE_COLS = [
     # ===== 시장 지수 =====
     'vix_vs_stock_vol',
     # 시장 센티멘트 흐름
-    'market_sent_ma3',       # 단기 흐름
-    'market_sent_momentum',  # 변화 속도 
+    'nasdaq_change_rate'
 ]
 
 GBM_FEATURE_COLS = [
     # 모멘텀
-    'change_rate',
+    # 'change_rate',
     # 'return_1',
     'return_5',
-
+    'nasdaq_change_rate',
     # 이격도
-    # 'disparity_20',
+    'disparity_20',
     # 시장 상대 강도
-    # 'alpha',
+    'alpha',
     'alpha_5',
-    'alpha_20',
+    # 'alpha_20',
     # 'alpha_divergence',
     # 이동평균
     'ma_ratio',
@@ -66,16 +65,12 @@ GBM_FEATURE_COLS = [
     'drawdown_20',     
     # 5일간의 고가 - 저가 평균 (종목의 활동성)
     'tr_5',
+    'tr_20',
+    'tr_60',
     'pullback_zscore',
     'price_position_52w',
     # 'disparity_zscore'
     # 시장 센티멘트
-    'market_sent_mean',      # 오늘 시장 감성
-    'market_sent_ma3',       # 3일 흐름
-    'market_sent_momentum',  # 변화 방향
-    'market_news_surge',     # 뉴스 급증
-
-    
 ]
 
 TICKERS = [

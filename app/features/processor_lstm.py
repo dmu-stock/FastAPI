@@ -1,40 +1,12 @@
-# TODO:
-# 1. 데이터 정제 (Data Cleaning)
-#    - yfinance에서 가져온 데이터 중 비어있는 값(NaN) 처리
-#    - 주식 분할이나 배당 등이 반영된 수정 종가(Adj Close) 사용 여부 결정
-#
-# 2. 기술적 지표 생성 (Technical Indicators)
-#    - 이동평균선(SMA/EMA): 5일, 20일, 60일선 등 계산
-#    - 변동성 지표: 볼린저 밴드(Bollinger Bands), ATR 등
-#    - 모멘텀 지표: RSI, MACD, Stochastic 등
-#
-# 3. 모델 입력용 데이터셋 구성 (Feature Matrix)
-#    - XGBoost 모델이 학습할 때 사용했던 컬럼 순서와 동일하게 정렬
-#    - 예측 시점(t)을 기준으로 과거 n일간의 데이터를 한 줄로 펼치기(Lag features)
-#
-# 4. 정규화 및 스케일링 (Optional)
-#    - 데이터의 범위를 0~1 사이로 맞추는 등의 스케일링 작업 (필요 시)
-#
-# 5. 최종 데이터 유효성 검사
-#    - 모델에 넣기 직전 데이터에 이상치나 무한대(Inf) 값이 없는지 확인
-
 import pandas as pd
 import numpy as np
-from app.database.sqlite_db import get_connection
 from datetime import datetime
 from app.config.config import LSTM_FEATURE_COLS
+from app.features.base_processor import BaseFeatureProcessor
 
-class FeatureProcessorLSTM:
-    def __init__(self, db_path: str = "stock_data.db"):
-        self.db_path = db_path
 
-    def get_raw_data(self)->pd.DataFrame:
-        conn = get_connection()
-        query = f"SELECT * FROM stock_prices ORDER BY date ASC"
-        df = pd.read_sql(query,conn)
-        conn.close()
-
-        return df
+class FeatureProcessorLSTM(BaseFeatureProcessor):
+    pass
 
     def calc_technical_indicators(self, df, rsi_period=14, is_inference=False):
         # 종목과 날짜 순으로 철저하게 정렬
@@ -164,49 +136,8 @@ class FeatureProcessorLSTM:
         # ---------------------------------------------------
 
         if not is_inference:
-            TP = 0.025   # 익절
-            SL = -0.04   # 손절
-
-            # 미래 종가
-            df['close_t1'] = df.groupby('ticker')['adj_close'].shift(-1)
-            df['close_t2'] = df.groupby('ticker')['adj_close'].shift(-2)
-            df['close_t3'] = df.groupby('ticker')['adj_close'].shift(-3)
-
-            # 오늘 종가 대비 미래 수익률
-            df['return_t1'] = (df['close_t1'] - df['adj_close']) / df['adj_close']
-            df['return_t2'] = (df['close_t2'] - df['adj_close']) / df['adj_close']
-            df['return_t3'] = (df['close_t3'] - df['adj_close']) / df['adj_close']
-
-            # 3. 미래 3일의 '종가 기준 최고 수익률'만 쏙 뽑아내기
-            # df['max_return_3d'] = df[['return_t1', 'return_t2', 'return_t3']].max(axis=1)
-            # df['min_return_3d'] = df[['return_t1', 'return_t2', 'return_t3']].min(axis=1)
-
-            def make_label(row):
-                future_returns = [
-                    row['return_t1'],
-                    row['return_t2'],
-                    row['return_t3']
-                ]
-
-                for r in future_returns:
-
-                    # 미래 데이터 부족한 경우 skip
-                    if pd.isna(r):
-                        continue
-
-                    # 익절 먼저 도달 → 성공
-                    if r >= TP:
-                        return 1
-
-                    # 손절 먼저 도달 → 실패
-                    if r <= SL:
-                        return 0
-
-                # 3일 내 둘 다 안 나오면 실패
-                return 0
-
-            # 4. 라벨링: 3일 중 한 번이라도 종가 기준으로 +2.5% 이상 올랐으면 1, 아니면 0
-            df['label'] = df.apply(make_label, axis=1)
+            # 장중 저가 기준 SL + 종가 기준 TP (base_processor.make_label 사용)
+            df = self._apply_labels(df)
         
         # ---------------------------------------------------
         # 6. 컬럼 필터링 및 데이터 동적 정리

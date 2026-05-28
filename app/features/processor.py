@@ -1,40 +1,12 @@
-# TODO:
-# 1. 데이터 정제 (Data Cleaning)
-#    - yfinance에서 가져온 데이터 중 비어있는 값(NaN) 처리
-#    - 주식 분할이나 배당 등이 반영된 수정 종가(Adj Close) 사용 여부 결정
-#
-# 2. 기술적 지표 생성 (Technical Indicators)
-#    - 이동평균선(SMA/EMA): 5일, 20일, 60일선 등 계산
-#    - 변동성 지표: 볼린저 밴드(Bollinger Bands), ATR 등
-#    - 모멘텀 지표: RSI, MACD, Stochastic 등
-#
-# 3. 모델 입력용 데이터셋 구성 (Feature Matrix)
-#    - XGBoost 모델이 학습할 때 사용했던 컬럼 순서와 동일하게 정렬
-#    - 예측 시점(t)을 기준으로 과거 n일간의 데이터를 한 줄로 펼치기(Lag features)
-#
-# 4. 정규화 및 스케일링 (Optional)
-#    - 데이터의 범위를 0~1 사이로 맞추는 등의 스케일링 작업 (필요 시)
-#
-# 5. 최종 데이터 유효성 검사
-#    - 모델에 넣기 직전 데이터에 이상치나 무한대(Inf) 값이 없는지 확인
-
 import pandas as pd
 import numpy as np
-from app.database.sqlite_db import get_connection
 from datetime import datetime
 from app.config.config import GBM_FEATURE_COLS
+from app.features.base_processor import BaseFeatureProcessor
 
-class FeatureProcessorGBM:
-    def __init__(self, db_path: str = "stock_data.db"):
-        self.db_path = db_path
 
-    def get_raw_data(self)->pd.DataFrame:
-        conn = get_connection()
-        query = f"SELECT * FROM stock_prices ORDER BY date ASC"
-        df = pd.read_sql(query,conn)
-        conn.close()
-
-        return df
+class FeatureProcessorGBM(BaseFeatureProcessor):
+    pass
 
     def calc_technical_indicators(self, df, rsi_period=14,is_inference=False):
         df = df.sort_values(['ticker','date']).reset_index(drop=True)
@@ -68,7 +40,8 @@ class FeatureProcessorGBM:
         # 5일간의 고가 - 저가 평균 (종목의 활동성)
         df['price_range'] = (df['high'] - df['low']) / df['adj_close']
         df['tr_5'] = df.groupby('ticker')['price_range'].transform(lambda x: x.rolling(5).mean())
-
+        df['tr_20'] = df.groupby('ticker')['price_range'].transform(lambda x: x.rolling(20).mean())
+        df['tr_60'] = df.groupby('ticker')['price_range'].transform(lambda x: x.rolling(60).mean())
 
         # ---------------------------
         # RSI (Momentum)
@@ -159,25 +132,12 @@ class FeatureProcessorGBM:
         df['max_20'] = df.groupby('ticker')['high'].transform(lambda x: x.rolling(20).max())
         df['drawdown_20'] = (df['adj_close'] - df['max_20']) / df['max_20']
 
-        # 52주 고가 대비 현재가 위치 (0=52주 저점, 1=52주 고점)
-        df['price_position_52w'] = (
-            (df['adj_close'] - df.groupby('ticker')['adj_close'].transform(lambda x: x.rolling(252).min())) /
-            (df.groupby('ticker')['adj_close'].transform(lambda x: x.rolling(252).max()) - 
-            df.groupby('ticker')['adj_close'].transform(lambda x: x.rolling(252).min()) + 1e-9)
-        )
-
         # 현재가가 20일 밴드 어디쯤인지 (이미 bb_percent 있으므로 60일 버전 추가)
         std_60 = df.groupby('ticker')['adj_close'].transform(lambda x: x.rolling(60).std())
         ma_60  = df.groupby('ticker')['adj_close'].transform(lambda x: x.rolling(60).mean())
         df['bb_percent_60'] = (df['adj_close'] - (ma_60 - 2*std_60)) / (4*std_60 + 1e-9)
 
         
-
-        # 나스닥 5일 누적 수익률
-        df['nasdaq_5d'] = (
-            df.groupby('date')['nasdaq_change_rate']
-            .transform(lambda x: (1 + x).rolling(5).apply(np.prod, raw=True) - 1)
-        )
         df['high_20'] = df.groupby('ticker')['high'].transform(lambda x: x.rolling(20).max())
 
         # 5일 후 수익률
@@ -185,7 +145,7 @@ class FeatureProcessorGBM:
             df.groupby('ticker')['adj_close'].shift(-5) / df['adj_close'] - 1
         )
         
-        # 나스닥 5일 누적 수익률 (시장 베타 제거)
+        # 나스닥 5일 누적 수익률
         df['nasdaq_forward_5d'] = df.groupby('ticker')['nasdaq_change_rate'].transform(
             lambda x: (1 + x).rolling(5).apply(np.prod, raw=True) - 1
         ).shift(-5)  # 미래 5일
@@ -218,57 +178,8 @@ class FeatureProcessorGBM:
         df['tnx_change_20'] = df['tnx'].pct_change(20)
 
         if not is_inference:
-            TP = 0.025   # 익절
-            SL = -0.04   # 손절
-
-            # 미래 종가
-            df['close_t1'] = df.groupby('ticker')['adj_close'].shift(-1)
-            df['close_t2'] = df.groupby('ticker')['adj_close'].shift(-2)
-            df['close_t3'] = df.groupby('ticker')['adj_close'].shift(-3)
-
-            # 오늘 종가 대비 미래 수익률
-            df['return_t1'] = (df['close_t1'] - df['adj_close']) / df['adj_close']
-            df['return_t2'] = (df['close_t2'] - df['adj_close']) / df['adj_close']
-            df['return_t3'] = (df['close_t3'] - df['adj_close']) / df['adj_close']
-
-            # 3. 미래 3일의 '종가 기준 최고 수익률'만 쏙 뽑아내기
-            # df['max_return_3d'] = df[['return_t1', 'return_t2', 'return_t3']].max(axis=1)
-            # df['min_return_3d'] = df[['return_t1', 'return_t2', 'return_t3']].min(axis=1)
-
-            def make_label(row):
-                future_returns = [
-                    row['return_t1'],
-                    row['return_t2'],
-                    row['return_t3']
-                ]
-
-                for r in future_returns:
-
-                    # 미래 데이터 부족한 경우 skip
-                    if pd.isna(r):
-                        continue
-
-                    # 익절 먼저 도달 → 성공
-                    if r >= TP:
-                        return 1
-
-                    # 손절 먼저 도달 → 실패
-                    if r <= SL:
-                        return 0
-
-                # 3일 내 둘 다 안 나오면 실패
-                return 0
-
-            # 4. 라벨링: 3일 중 한 번이라도 종가 기준으로 +2.5% 이상 올랐으면 1, 아니면 0
-            df['label'] = df.apply(make_label, axis=1)
-
-        #     # 라벨: 평소보다 더 눌렸고 + 나스닥보다 더 올랐으면 1
-        #     df['label'] = np.where(
-        #         (df['pullback_zscore'] <= -0.3) &   # 평소 대비 더 눌린 상태
-        #         (df['excess_5d'] >= 0.01),           # 나스닥 대비 +2% 초과수익
-        #         1, 0
-        #     )
-            print("양성 비율:", df['label'].mean())
+            # 장중 저가 기준 SL + 종가 기준 TP (base_processor.make_label 사용)
+            df = self._apply_labels(df)
         else:
             # 라벨이 없으므로 -1로 초기화
             df['label'] = -1
@@ -278,8 +189,6 @@ class FeatureProcessorGBM:
             df = df.dropna(subset=check_cols_inf).reset_index(drop=True)
 
         
-        
-
         meta_cols = ['ticker', 'date']
         feature_cols = GBM_FEATURE_COLS
         if not is_inference:

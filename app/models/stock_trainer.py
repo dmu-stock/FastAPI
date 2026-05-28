@@ -11,10 +11,67 @@ from sklearn.metrics import (
     roc_auc_score
 )
 
+
+def walk_forward_eval(df: pd.DataFrame, feature_cols: list, target_col: str) -> pd.DataFrame:
+    """
+    확장 윈도우 워크-포워드 검증.
+    각 폴드마다 독립적으로 모델을 학습하여 AUC를 측정한다.
+    단순 날짜 분할 결과가 특정 시장 구간에 운 좋게 맞춰진 것인지 확인한다.
+    """
+    folds = [
+        ('2024-01-01', '2024-07-01'),
+        ('2024-04-01', '2024-10-01'),
+        ('2024-07-01', '2025-01-01'),
+        ('2024-10-01', '2025-04-01'),
+    ]
+
+    params = dict(
+        n_estimators=500,
+        learning_rate=0.01,
+        max_depth=6,
+        num_leaves=20,
+        min_data_in_leaf=80,
+        feature_fraction=0.7,
+        subsample=0.7,
+        subsample_freq=1,
+        lambda_l1=0.1,
+        lambda_l2=0.1,
+        objective='binary',
+        boosting_type='gbdt',
+        force_col_wise=True,
+        random_state=42,
+        class_weight='balanced',
+        verbose=-1,
+    )
+
+    records = []
+    for test_start, test_end in folds:
+        fold_train = df[df['date'] < test_start]
+        fold_test  = df[(df['date'] >= test_start) & (df['date'] < test_end)]
+
+        if len(fold_train) < 100 or len(fold_test) < 10:
+            continue
+        if fold_test[target_col].nunique() < 2:
+            continue
+
+        m = LGBMClassifier(**params)
+        m.fit(fold_train[feature_cols], fold_train[target_col])
+        prob = m.predict_proba(fold_test[feature_cols])[:, 1]
+
+        records.append({
+            'test_period':  f'{test_start} ~ {test_end}',
+            'train_rows':   len(fold_train),
+            'test_rows':    len(fold_test),
+            'pos_rate':     round(fold_test[target_col].mean(), 4),
+            'auc':          round(roc_auc_score(fold_test[target_col], prob), 4),
+        })
+
+    return pd.DataFrame(records)
+
 # -----------------------------
 # 데이터 로드
 # -----------------------------
-df_tech = pd.read_csv("feature__indicator_20260527.csv")
+df_tech = pd.read_csv("feature__indicator_20260528.csv")
 
 # 날짜 타입 변환
 df_tech['date'] = pd.to_datetime(df_tech['date'])
@@ -50,19 +107,20 @@ model = LGBMClassifier(
     n_estimators=2000,
     learning_rate=0.005,
     max_depth=6,
-    num_leaves=20,
-    min_data_in_leaf=80,
-    feature_fraction=0.7,
-    subsample=0.7,
+    num_leaves=31,          # 20 → 31 (LightGBM 기본값, 표현력 증가)
+    min_data_in_leaf=50,    # 80 → 50 (너무 보수적)
+    feature_fraction=0.8,   # 0.7 → 0.8 (피처 더 활용)
+    subsample=0.8,          # 0.7 → 0.8
     subsample_freq=1,
-    colsample_bytree=0.7,
-    lambda_l1=0.1,
-    lambda_l2=0.1,
+    colsample_bytree=0.8,   # 0.7 → 0.8
+    lambda_l1=0.05,         # 0.1 → 0.05 (정규화 완화)
+    lambda_l2=0.05,         # 0.1 → 0.05
     objective='binary',
     boosting_type='gbdt',
     force_col_wise=True,
     random_state=42,
-    class_weight='balanced',
+    class_weight=None,
+    scale_pos_weight=2.0,
     verbose=-1,
 )
 
@@ -87,14 +145,22 @@ pred = model.predict(X_test)
 
 # 상승 확률
 pred_prob = model.predict_proba(X_test)[:, 1]
-threshold = 0.55
+
+# 확률 분포 확인 (threshold 튜닝용)
+print("\n===== Probability Distribution =====")
+for t in [0.40, 0.43, 0.45, 0.48, 0.50, 0.53, 0.55]:
+    n = (pred_prob >= t).sum()
+    print(f"  >= {t:.2f}: {n:>5}개  ({n/len(pred_prob)*100:.1f}%)")
+
+threshold = 0.48
 pred = (pred_prob >= threshold).astype(int)
+print(f"\n[사용 threshold: {threshold}]")
 
 # -----------------------------
 # 평가
 # -----------------------------
 print("\n===== Classification Report =====")
-print(classification_report(y_test, pred))
+print(classification_report(y_test, pred, zero_division=0))
 
 print(f"Accuracy : {accuracy_score(y_test, pred):.4f}")
 print(f"ROC-AUC  : {roc_auc_score(y_test, pred_prob):.4f}")
@@ -167,5 +233,13 @@ print(f"베이스라인: {result_df['actual'].mean():.4f}")
 
 
 result_df.to_csv("prediction_result.csv", index=False)
-
 print("\nprediction_result.csv 저장 완료")
+
+# -----------------------------
+# Walk-Forward 검증
+# -----------------------------
+print("\n===== Walk-Forward Validation =====")
+wf_result = walk_forward_eval(df_tech, feature_cols, target_col)
+print(wf_result.to_string(index=False))
+print(f"\nWalk-Forward 평균 AUC: {wf_result['auc'].mean():.4f}  (편차: {wf_result['auc'].std():.4f})")
+print("AUC 편차가 크면 특정 시장 구간에 과적합됐을 가능성이 높음")
