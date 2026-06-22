@@ -38,6 +38,3 @@ db/
 chroma_db/
 sentiment_cache.json
 
-*.pkl
-*.keras
-*.pt
